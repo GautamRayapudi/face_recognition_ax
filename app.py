@@ -2,6 +2,8 @@ import streamlit as st
 import requests
 from PIL import Image
 from typing import Optional, Dict, Any
+from io import BytesIO
+from urllib.parse import urlparse
 
 # Configuration
 API_BASE_URL = "http://35.154.225.172:8003"  # Update this to match your API server
@@ -82,13 +84,14 @@ def get_collection_info() -> Optional[Dict[str, Any]]:
     except requests.exceptions.RequestException:
         return None
 
-def enroll_employee(image_bytes: bytes, filename: str, phone: Optional[str] = None) -> Dict[str, Any]:
+def enroll_employee(image_url: str, phone: Optional[str] = None) -> Dict[str, Any]:
     """Enroll an employee via API"""
     try:
-        files = {"file": (filename, image_bytes, "image/jpeg")}
-        data = {"phone": phone} if phone else {}
+        data = {"image_url": image_url}
+        if phone:
+            data["phone"] = phone
         
-        response = requests.post(f"{API_BASE_URL}/enroll", files=files, data=data, timeout=30)
+        response = requests.post(f"{API_BASE_URL}/enroll", data=data, timeout=30)
         return {
             "success": response.status_code == 200,
             "data": response.json(),
@@ -101,12 +104,12 @@ def enroll_employee(image_bytes: bytes, filename: str, phone: Optional[str] = No
             "status_code": 500
         }
 
-def login_employee(image_bytes: bytes, filename: str) -> Dict[str, Any]:
+def login_employee(image_url: str) -> Dict[str, Any]:
     """Login an employee via API"""
     try:
-        files = {"file": (filename, image_bytes, "image/jpeg")}
+        data = {"image_url": image_url}
         
-        response = requests.post(f"{API_BASE_URL}/login", files=files, timeout=30)
+        response = requests.post(f"{API_BASE_URL}/login", data=data, timeout=30)
         return {
             "success": response.status_code == 200,
             "data": response.json(),
@@ -119,13 +122,12 @@ def login_employee(image_bytes: bytes, filename: str) -> Dict[str, Any]:
             "status_code": 500
         }
 
-def search_faces(image_bytes: bytes, filename: str, limit: int = 5) -> Dict[str, Any]:
+def search_faces(image_url: str, limit: int = 5) -> Dict[str, Any]:
     """Search for face matches via API"""
     try:
-        files = {"file": (filename, image_bytes, "image/jpeg")}
-        data = {"limit": limit}
+        data = {"image_url": image_url, "limit": limit}
         
-        response = requests.post(f"{API_BASE_URL}/search", files=files, data=data, timeout=30)
+        response = requests.post(f"{API_BASE_URL}/search", data=data, timeout=30)
         return {
             "success": response.status_code == 200,
             "data": response.json(),
@@ -178,17 +180,33 @@ def clear_collection() -> Dict[str, Any]:
             "status_code": 500
         }
 
-def display_image_with_info(uploaded_file, max_width: int = 300):
-    """Display uploaded image with information"""
-    if uploaded_file is not None:
-        image = Image.open(uploaded_file)
-        st.image(image, caption=f"Uploaded: {uploaded_file.name}", width=max_width)
-        
-        # Display image info
-        st.write(f"**File Name:** {uploaded_file.name}")
-        st.write(f"**File Size:** {uploaded_file.size:,} bytes")
-        st.write(f"**Image Size:** {image.size[0]} x {image.size[1]} pixels")
-        return image
+def display_image_with_info(image_url: str, max_width: int = 300):
+    """Display image from URL with information"""
+    if image_url:
+        try:
+            # Download image for info
+            response = requests.get(image_url, timeout=5)
+            if not response.ok:
+                st.error("❌ Failed to load image from URL")
+                return None
+            
+            image_bytes = response.content
+            image = Image.open(BytesIO(image_bytes))
+            
+            # Extract filename from URL
+            parsed_url = urlparse(image_url)
+            filename = parsed_url.path.split('/')[-1].split('?')[0]
+            
+            st.image(image_url, caption=f"From URL: {filename}", width=max_width)
+            
+            # Display image info
+            st.write(f"**File Name:** {filename}")
+            st.write(f"**File Size:** {len(image_bytes):,} bytes")
+            st.write(f"**Image Size:** {image.size[0]} x {image.size[1]} pixels")
+            return image
+        except Exception as e:
+            st.error(f"❌ Error loading image: {str(e)}")
+            return None
     return None
 
 def main():
@@ -257,8 +275,8 @@ def show_home_page():
     with col2:
         st.markdown("""
         ### 📈 How It Works
-        1. **Enroll**: Upload employee photo with phone number
-        2. **Authenticate**: Login by taking/uploading a photo
+        1. **Enroll**: Provide employee photo URL with phone number
+        2. **Authenticate**: Login by providing a photo URL
         3. **Analyze**: Get detailed match analysis and confidence scores
         4. **Manage**: Add, remove, or update employee records
         """)
@@ -297,18 +315,18 @@ def show_enrollment_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # File upload
-    uploaded_file = st.file_uploader(
-        "Choose employee photo",
-        type=['jpg', 'jpeg', 'png'],
-        help="Upload a clear photo of the employee's face"
+    # Image URL input
+    image_url = st.text_input(
+        "🌐 Image URL",
+        placeholder="https://example.com/image.jpg",
+        help="Provide a direct URL to the employee's face photo"
     )
     
-    if uploaded_file is not None:
+    if image_url:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            display_image_with_info(uploaded_file)
+            display_image_with_info(image_url)
         
         with col2:
             st.subheader("📋 Enrollment Details")
@@ -332,8 +350,7 @@ def show_enrollment_page():
             # Enrollment button
             if st.button("🚀 Enroll Employee", type="primary", disabled=not phone_valid):
                 with st.spinner("Processing enrollment..."):
-                    image_bytes = uploaded_file.getvalue()
-                    result = enroll_employee(image_bytes, uploaded_file.name, phone if phone else None)
+                    result = enroll_employee(image_url, phone if phone else None)
                 
                 if result["success"]:
                     st.markdown(f"""
@@ -364,24 +381,23 @@ def show_login_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # File upload
-    uploaded_file = st.file_uploader(
-        "Upload photo for authentication",
-        type=['jpg', 'jpeg', 'png'],
-        help="Take or upload a photo for face recognition login"
+    # Image URL input
+    image_url = st.text_input(
+        "🌐 Image URL for authentication",
+        placeholder="https://example.com/image.jpg",
+        help="Provide a direct URL to the photo for face recognition login"
     )
     
-    if uploaded_file is not None:
+    if image_url:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            display_image_with_info(uploaded_file)
+            display_image_with_info(image_url)
         
         with col2:
             if st.button("🔍 Authenticate", type="primary"):
                 with st.spinner("Analyzing face..."):
-                    image_bytes = uploaded_file.getvalue()
-                    result = login_employee(image_bytes, uploaded_file.name)
+                    result = login_employee(image_url)
                 
                 if result["success"]:
                     data = result["data"]
@@ -443,24 +459,23 @@ def show_search_page():
     with col2:
         limit = st.slider("Number of matches to return", 1, 10, 5)
     
-    # File upload
-    uploaded_file = st.file_uploader(
-        "Upload photo for face search",
-        type=['jpg', 'jpeg', 'png'],
-        help="Upload a photo to find similar faces in the database"
+    # Image URL input
+    image_url = st.text_input(
+        "🌐 Image URL for face search",
+        placeholder="https://example.com/image.jpg",
+        help="Provide a direct URL to the photo to find similar faces in the database"
     )
     
-    if uploaded_file is not None:
+    if image_url:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            display_image_with_info(uploaded_file)
+            display_image_with_info(image_url)
         
         with col2:
             if st.button("🔎 Search Faces", type="primary"):
                 with st.spinner("Searching database..."):
-                    image_bytes = uploaded_file.getvalue()
-                    result = search_faces(image_bytes, uploaded_file.name, limit)
+                    result = search_faces(image_url, limit)
                 
                 if result["success"]:
                     data = result["data"]
