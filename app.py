@@ -236,8 +236,6 @@ def main():
         # Collection info
         if health_status["status"] == "healthy":
             collection_info = get_collection_info()
-            if collection_info:
-                st.metric("Total Faces", collection_info.get("total_faces", 0))
 
     # Navigation
     page = st.sidebar.selectbox(
@@ -289,12 +287,10 @@ def show_home_page():
         collection_info = get_collection_info()
         enrolled_list = list_enrolled_phones()
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
-            st.metric("🎭 Total Faces", collection_info.get("total_faces", 0) if collection_info else 0)
-        with col2:
             st.metric("📱 Enrolled Users", enrolled_list.get("total_count", 0) if enrolled_list else 0)
-        with col3:
+        with col2:
             st.metric("🟢 System Status", "Online")
     else:
         st.error("❌ Cannot connect to Face Recognition API. Please ensure the server is running.")
@@ -578,7 +574,6 @@ def show_admin_page():
         st.markdown("### 📈 Collection Statistics")
         collection_info = get_collection_info()
         if collection_info:
-            st.metric("Total Faces", collection_info.get("total_faces", 0))
             st.metric("Collection Name", collection_info.get("collection_name", "Unknown"))
             st.metric("Status", collection_info.get("status", "Unknown"))
     
